@@ -106,6 +106,7 @@ small,.mu{color:var(--mu);font-size:12.5px}
 <!-- RIWAYAT -->
 <section id="v-riwayat" class="hide">
   <div class="card"><div class="stats" id="stats"></div></div>
+  <div class="card"><label style="margin-top:0">Lihat periode tertentu</label><div class="row"><input class="f" type="date" id="hf"><input class="f" type="date" id="ht"></div><div class="row" style="margin-top:8px"><button class="btn s f" id="hrst">3 hari terakhir</button><button class="btn f" id="hgo">Tampilkan</button></div></div>
   <div class="card"><div class="row"><b class="f">Transaksi</b><button class="btn s sm" id="csv">Ekspor CSV</button></div><div id="hist"></div></div>
 </section>
 </main>
@@ -136,22 +137,35 @@ function flush(){
   fetch(CFG.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({key:CFG.key,action:j.action,data:j.data})})
   .then(function(r){return r.json()}).then(function(r){if(r.error)throw r.error;Q.shift();sq();busy=false;st();flush()})
   .catch(function(e){busy=false;st('⚠ offline/gagal, mencoba lagi…');setTimeout(flush,15000)})}
-function pull(){
+var ver=null,offset=0,warned=false;
+try{offset=+localStorage.getItem('kasir_off')||0;ver=localStorage.getItem('kasir_ver')}catch(e){}
+function api(q){
+  var t0=Date.now();
+  return fetch(CFG.url+'?key='+encodeURIComponent(CFG.key)+q).then(function(r){return r.json()}).then(function(r){
+    if(r.error)throw r.error;
+    if(r.now){offset=r.now-(t0+Date.now())/2;try{localStorage.setItem('kasir_off',offset)}catch(e){}
+      if(Math.abs(offset)>120000&&!warned){warned=true;toast('Jam HP berbeda dari server. Tanggal transaksi disesuaikan otomatis.')}}
+    return r})}
+function pull(force){
   if(!CFG.url)return;if(Q.length||busy){flush();return}
   var r0=rev;
-  fetch(CFG.url+'?key='+encodeURIComponent(CFG.key)).then(function(r){return r.json()}).then(function(r){
-    if(r.error){st('⚠ '+r.error);return}
-    if(Q.length||busy||rev!==r0)return; /* abaikan data lama jika ada perubahan lokal */
-    S.products=r.products;S.sales=r.sales;save();st();
-    renderC();if(!$('#v-produk').classList.contains('hide'))renderP();if(!$('#v-riwayat').classList.contains('hide'))renderH()
-  }).catch(function(){st('⚠ gagal memuat dari Sheet')})}
+  api('&action=ver').then(function(v){
+    if(!force&&v.ver!==undefined&&String(v.ver)===ver&&S.products.length)return; /* tidak ada perubahan: selesai (ringan) */
+    return api('').then(function(r){
+      if(Q.length||busy||rev!==r0)return; /* abaikan data lama jika ada perubahan lokal */
+      S.products=r.products;S.sales=r.sales;ver=r.ver===undefined?null:String(r.ver);
+      try{if(ver!==null)localStorage.setItem('kasir_ver',ver)}catch(e){}
+      save();st();
+      renderC();if(!$('#v-produk').classList.contains('hide'))renderP();if(!$('#v-riwayat').classList.contains('hide'))renderH()})
+  }).catch(function(e){st('⚠ '+(typeof e==='string'?e:'gagal memuat dari Sheet'))})}
 $('#cfg').onclick=function(){
   var u=prompt('URL Web App Apps Script (berakhiran /exec):',CFG.url);if(u===null)return;
   var k=prompt('Kunci rahasia (sama dengan KEY di Code.gs):',CFG.key);if(k===null)return;
   CFG={url:u.trim(),key:k.trim()};try{localStorage.setItem('kasir_cfg',JSON.stringify(CFG))}catch(e){}
-  st();pull()};
+  st();pull(true)};
 $('#st').style.cursor='pointer';$('#st').onclick=function(){$('#cfg').onclick()}; /* ketuk tulisan status untuk membuka pengaturan Sheet */
-setInterval(pull,60000);
+setInterval(function(){if(document.visibilityState==='visible')pull()},60000);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')pull()});
 var cart=[],editing=null,restockId=null;
 function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.remove('on')},1800)}
 function beep(ok){try{var a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.frequency.value=ok?880:220;o.connect(a.destination);o.start();setTimeout(function(){o.stop();a.close()},ok?90:250)}catch(e){}}
@@ -243,7 +257,7 @@ $('#pay').onclick=function(){
   if(pd<t){toast('Uang kurang '+rp(t-pd));$('#paid').focus();return}
   var items=cart.map(function(c){var p=S.products.find(function(x){return x.id===c.id});p.stock-=c.qty;
     return {barcode:p.barcode,name:p.name,price:p.price,cost:p.cost,qty:c.qty}});
-  var sale={id:'T'+Date.now().toString(36).toUpperCase(),date:new Date().toISOString(),items:items,disc:+$('#disc').value||0,total:t,paid:pd,change:pd-t};
+  var sale={id:'T'+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase(),date:new Date(Date.now()+offset).toISOString(),items:items,disc:+$('#disc').value||0,total:t,paid:pd,change:pd-t};
   S.sales.unshift(sale);save();sync('addSale',sale);cart=[];$('#disc').value='';$('#paid').value='';renderC();receipt(sale);
 };
 
@@ -326,17 +340,27 @@ $('#plist').onclick=function(e){var a=e.target.dataset.a,id=e.target.dataset.id;
   if(a==='d'&&confirm('Hapus produk ini?')){S.products=S.products.filter(function(p){return p.id!==id});save();sync('deleteProduct',{id:id});renderP()}};
 
 /* ---------- Riwayat ---------- */
+var RV=null;
 function renderH(){
-  var today=new Date().toDateString(),ts=S.sales.filter(function(s){return new Date(s.date).toDateString()===today});
+  var list=RV?RV.list:S.sales,ts=list,lab=RV?RV.label:'hari ini';
+  if(!RV){var today=new Date(Date.now()+offset).toDateString();ts=list.filter(function(s){return new Date(s.date).toDateString()===today})}
   var om=ts.reduce(function(a,s){return a+s.total},0);
   var lb=ts.reduce(function(a,s){return a+s.total-s.items.reduce(function(x,i){return x+i.cost*i.qty},0)},0);
-  $('#stats').innerHTML='<div><small>Omzet hari ini</small><b>'+rp(om)+'</b></div><div><small>Laba hari ini</small><b>'+rp(lb)+'</b></div><div><small>Transaksi</small><b>'+ts.length+'</b></div>';
-  $('#hist').innerHTML=S.sales.length?S.sales.slice(0,100).map(function(s){
-    return '<div class="item"><div class="n"><b>'+s.id+' · '+rp(s.total)+'</b><small>'+new Date(s.date).toLocaleString('id-ID')+' · '+s.items.reduce(function(a,i){return a+i.qty},0)+' item</small></div><button class="btn s sm" data-id="'+s.id+'">Struk</button></div>'}).join(''):'<p class="mu" style="text-align:center">Belum ada transaksi.</p>'}
-$('#hist').onclick=function(e){var id=e.target.dataset.id;if(id)receipt(S.sales.find(function(s){return s.id===id}))};
+  $('#stats').innerHTML='<div><small>Omzet '+lab+'</small><b>'+rp(om)+'</b></div><div><small>Laba '+lab+'</small><b>'+rp(lb)+'</b></div><div><small>Transaksi</small><b>'+ts.length+'</b></div>';
+  $('#hist').innerHTML=list.length?list.slice(0,300).map(function(s){
+    return '<div class="item"><div class="n"><b>'+s.id+' · '+rp(s.total)+'</b><small>'+new Date(s.date).toLocaleString('id-ID')+' · '+s.items.reduce(function(a,i){return a+i.qty},0)+' item</small></div><button class="btn s sm" data-id="'+s.id+'">Struk</button></div>'}).join('')+(list.length>300?'<p class="mu" style="text-align:center">Menampilkan 300 terbaru dari '+list.length+'. Persempit periode untuk melihat lainnya.</p>':''):'<p class="mu" style="text-align:center">Belum ada transaksi'+(RV?' pada periode ini':' (3 hari terakhir)')+'.</p>'}
+$('#hist').onclick=function(e){var id=e.target.dataset.id;if(id)receipt((RV?RV.list:S.sales).find(function(s){return s.id===id}))};
+$('#hgo').onclick=function(){
+  var f=$('#hf').value,t=$('#ht').value||f;
+  if(!f){toast('Pilih tanggal mulai');return}
+  if(!CFG.url){toast('Belum terhubung ke Sheet');return}
+  toast('Memuat…');
+  api('&action=sales&from='+f+'&to='+t).then(function(r){RV={list:r.sales,label:f===t?f:f+' s/d '+t};renderH();toast(r.sales.length+' transaksi')})
+  .catch(function(e){toast('Gagal memuat: '+(typeof e==='string'?e:'koneksi'))})};
+$('#hrst').onclick=function(){RV=null;renderH()};
 $('#csv').onclick=function(){
   var r=['ID,Tanggal,Barcode,Produk,Qty,Harga,Total Transaksi'];
-  S.sales.forEach(function(s){s.items.forEach(function(i){r.push([s.id,s.date,i.barcode,'"'+i.name.replace(/"/g,'""')+'"',i.qty,i.price,s.total].join(','))})});
+  (RV?RV.list:S.sales).forEach(function(s){s.items.forEach(function(i){r.push([s.id,s.date,i.barcode,'"'+i.name.replace(/"/g,'""')+'"',i.qty,i.price,s.total].join(','))})});
   var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([r.join('\n')],{type:'text/csv'}));a.download='penjualan.csv';a.click()};
 
 renderC();$('#sc').focus();st();pull();
