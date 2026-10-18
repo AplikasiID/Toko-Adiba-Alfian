@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Kasir Toko</title>
+<title>Toko Mama Adiba</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛒</text></svg>">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0f766e">
@@ -65,7 +65,7 @@ small,.mu{color:var(--mu);font-size:12.5px}
 </head>
 <body>
 <header>
-  <div class="bar"><h1>🛒 <span id="shop">Kasir Toko</span></h1><span id="st" class="mu"></span><button class="btn s sm" id="cfg">⚙ Sheet</button><button class="btn s sm" id="rn">Nama Toko</button></div>
+  <div class="bar"><h1>🛒 <span id="shop">Toko Mama Adiba</span></h1><span id="st" class="mu"></span><button class="btn s sm" id="cfg">⚙ Sheet</button><button class="btn s sm" id="rn">Nama Toko</button></div>
   <nav id="nav"><button data-v="kasir" class="on">Kasir</button><button data-v="produk">Produk</button><button data-v="riwayat">Riwayat</button></nav>
 </header>
 <main>
@@ -101,7 +101,7 @@ small,.mu{color:var(--mu);font-size:12.5px}
     <div class="row"><div class="f"><label>Stok</label><input id="ps" type="number" min="0" inputmode="numeric"></div><div class="f"><label>Stok minimum</label><input id="pm" type="number" min="0" inputmode="numeric" value="5"></div></div>
     <div class="row" style="margin-top:12px"><button class="btn s" id="pcancel">Reset</button><button class="btn f" id="psave">Simpan Produk</button></div>
   </div>
-  <div class="card"><input id="pq" placeholder="Cari produk / barcode…"><div id="plist" style="margin-top:8px"></div></div>
+  <div class="card"><div class="row"><input class="f" id="pq" placeholder="Cari produk / barcode…"><button class="btn s sm" id="dd">Bersihkan duplikat</button></div><div id="plist" style="margin-top:8px"></div></div>
 </section>
 <!-- RIWAYAT -->
 <section id="v-riwayat" class="hide">
@@ -119,28 +119,30 @@ small,.mu{color:var(--mu);font-size:12.5px}
 var $=function(s){return document.querySelector(s)};
 var rp=function(n){return 'Rp'+Math.round(n||0).toLocaleString('id-ID')};
 var esc=function(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})};
-var S={products:[],sales:[],shop:'Kasir Toko'};
+var S={products:[],sales:[],shop:'Toko Mama Adiba'};
 function load(){try{var d=JSON.parse(localStorage.getItem('kasir_v1')||'null');if(d)S=Object.assign(S,d)}catch(e){}}
 function save(){try{localStorage.setItem('kasir_v1',JSON.stringify(S))}catch(e){}}
-load();
+load();if(S.shop==='Kasir Toko')S.shop='Toko Mama Adiba';
 /* ---------- Sinkron Google Sheets (Apps Script) ---------- */
 var CFG={url:'https://script.google.com/macros/s/AKfycbyIA-qtNWC40XRluRac84DDjIQZ22b6pXbeienUmXaDg7jnT1mBh4YjCNgFbYN64cHcgw/exec',key:'Adiba566'};
 try{CFG=Object.assign(CFG,JSON.parse(localStorage.getItem('kasir_cfg')||'{}'))}catch(e){}
-var Q=[],busy=false;
+var Q=[],busy=false,rev=0;
 try{Q=JSON.parse(localStorage.getItem('kasir_q')||'[]')}catch(e){}
 function sq(){try{localStorage.setItem('kasir_q',JSON.stringify(Q))}catch(e){}}
-function st(m){var e=document.getElementById('st');if(e)e.textContent=!CFG.url?'⚠ belum terhubung':m||(Q.length?'⏳ '+Q.length+' antrian':'☁ tersinkron')}
-function sync(a,d){Q.push({action:a,data:d});sq();st();flush()}
+function st(m){var b=document.getElementById('cfg');if(b)b.style.display=(CFG.url&&CFG.key)?'none':'';var e=document.getElementById('st');if(e)e.textContent=!CFG.url?'⚠ belum terhubung':m||(Q.length?'⏳ '+Q.length+' antrian':'☁ tersinkron')}
+function sync(a,d){rev++;Q.push({action:a,data:d});sq();st();flush()}
 function flush(){
   if(busy||!Q.length||!CFG.url)return;busy=true;var j=Q[0];
   fetch(CFG.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({key:CFG.key,action:j.action,data:j.data})})
   .then(function(r){return r.json()}).then(function(r){if(r.error)throw r.error;Q.shift();sq();busy=false;st();flush()})
   .catch(function(e){busy=false;st('⚠ offline/gagal, mencoba lagi…');setTimeout(flush,15000)})}
 function pull(){
-  if(!CFG.url)return;if(Q.length){flush();return}
+  if(!CFG.url)return;if(Q.length||busy){flush();return}
+  var r0=rev;
   fetch(CFG.url+'?key='+encodeURIComponent(CFG.key)).then(function(r){return r.json()}).then(function(r){
     if(r.error){st('⚠ '+r.error);return}
-    if(Q.length)return;S.products=r.products;S.sales=r.sales;save();st();
+    if(Q.length||busy||rev!==r0)return; /* abaikan data lama jika ada perubahan lokal */
+    var m={};S.products=r.products.filter(function(p){if(m[p.barcode])return false;m[p.barcode]=1;return true});S.sales=r.sales;save();st();
     renderC();if(!$('#v-produk').classList.contains('hide'))renderP();if(!$('#v-riwayat').classList.contains('hide'))renderH()
   }).catch(function(){st('⚠ gagal memuat dari Sheet')})}
 $('#cfg').onclick=function(){
@@ -148,6 +150,7 @@ $('#cfg').onclick=function(){
   var k=prompt('Kunci rahasia (sama dengan KEY di Code.gs):',CFG.key);if(k===null)return;
   CFG={url:u.trim(),key:k.trim()};try{localStorage.setItem('kasir_cfg',JSON.stringify(CFG))}catch(e){}
   st();pull()};
+$('#st').style.cursor='pointer';$('#st').onclick=function(){$('#cfg').onclick()}; /* ketuk tulisan status untuk membuka pengaturan Sheet */
 setInterval(pull,60000);
 var cart=[],editing=null;
 function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.remove('on')},1800)}
@@ -265,6 +268,12 @@ function renderP(){
     return '<div class="item"><div class="n"><b>'+esc(p.name)+'</b><small>'+esc(p.barcode)+' · Jual '+rp(p.price)+' · Stok <span class="'+(low?'low':'')+'">'+p.stock+(low?' ⚠':'')+'</span></small></div>'+
     '<button class="btn s sm" data-a="e" data-id="'+p.id+'">Edit</button><button class="btn d" data-a="d" data-id="'+p.id+'">Hapus</button></div>'}).join(''):'<p class="mu" style="text-align:center">Belum ada produk.</p>'}
 $('#pq').oninput=renderP;
+$('#dd').onclick=function(){
+  var m={},del=[],keep=[];
+  S.products.forEach(function(p){if(m[p.barcode])del.push(p.id);else{m[p.barcode]=1;keep.push(p)}});
+  if(!del.length){toast('Tidak ada duplikat');return}
+  if(!confirm('Hapus '+del.length+' produk dengan barcode kembar? (yang pertama dipertahankan)'))return;
+  S.products=keep;del.forEach(function(id){sync('deleteProduct',{id:id})});save();renderP();toast(del.length+' duplikat dihapus')};
 $('#plist').onclick=function(e){var a=e.target.dataset.a,id=e.target.dataset.id;if(!a)return;
   if(a==='e')edit(id);
   if(a==='d'&&confirm('Hapus produk ini?')){S.products=S.products.filter(function(p){return p.id!==id});save();sync('deleteProduct',{id:id});renderP()}};
