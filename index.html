@@ -98,10 +98,10 @@ small,.mu{color:var(--mu);font-size:12.5px}
     <div class="row"><input class="f" id="pb" placeholder="Scan atau ketik barcode" autocomplete="off"><button class="btn" id="pcam">📷 Scan</button></div>
     <label>Nama produk</label><input id="pn" placeholder="Contoh: Indomie Goreng">
     <div class="row"><div class="f"><label>Harga beli</label><input id="pc" type="number" min="0" inputmode="numeric"></div><div class="f"><label>Harga jual</label><input id="pp" type="number" min="0" inputmode="numeric"></div></div>
-    <div class="row"><div class="f"><label>Stok</label><input id="ps" type="number" min="0" inputmode="numeric"></div><div class="f"><label>Stok minimum</label><input id="pm" type="number" min="0" inputmode="numeric" value="5"></div></div>
+    <div class="row"><div class="f"><label id="pslb">Stok</label><input id="ps" type="number" min="0" inputmode="numeric"></div><div class="f"><label>Stok minimum</label><input id="pm" type="number" min="0" inputmode="numeric" value="5"></div></div>
     <div class="row" style="margin-top:12px"><button class="btn s" id="pcancel">Reset</button><button class="btn f" id="psave">Simpan Produk</button></div>
   </div>
-  <div class="card"><div class="row"><input class="f" id="pq" placeholder="Cari produk / barcode…"><button class="btn s sm" id="dd">Bersihkan duplikat</button></div><div id="plist" style="margin-top:8px"></div></div>
+  <div class="card"><div class="row"><input class="f" id="pq" placeholder="Cari produk / barcode…"><button class="btn" id="pqcam">📷 Scan</button></div><div style="margin-top:8px"><button class="btn s sm" id="dd">Bersihkan duplikat</button></div><div id="plist" style="margin-top:8px"></div></div>
 </section>
 <!-- RIWAYAT -->
 <section id="v-riwayat" class="hide">
@@ -152,7 +152,7 @@ $('#cfg').onclick=function(){
   st();pull()};
 $('#st').style.cursor='pointer';$('#st').onclick=function(){$('#cfg').onclick()}; /* ketuk tulisan status untuk membuka pengaturan Sheet */
 setInterval(pull,60000);
-var cart=[],editing=null;
+var cart=[],editing=null,restockId=null;
 function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.remove('on')},1800)}
 function beep(ok){try{var a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.frequency.value=ok?880:220;o.connect(a.destination);o.start();setTimeout(function(){o.stop();a.close()},ok?90:250)}catch(e){}}
 function view(v){['kasir','produk','riwayat'].forEach(function(x){$('#v-'+x).classList.toggle('hide',x!==v)});
@@ -245,12 +245,29 @@ $('#rcx').onclick=function(){$('#rcm').classList.remove('on');$('#sc').focus()};
 $('#rcp').onclick=function(){window.print()};
 
 /* ---------- Produk ---------- */
-function resetForm(){editing=null;['pb','pn','pc','pp','ps'].forEach(function(i){$('#'+i).value=''});$('#pm').value=5;$('#ftitle').textContent='Tambah Produk'}
+function resetForm(){editing=null;['pb','pn','pc','pp','ps'].forEach(function(i){$('#'+i).value=''});$('#pm').value=5;restockId=null;lock(false);$('#pslb').textContent='Stok';$('#ftitle').textContent='Tambah Produk'}
 $('#pcancel').onclick=resetForm;
-$('#pcam').onclick=function(){openScan(function(c){$('#pb').value=c;var p=find(c);if(p&&!editing){toast('Barcode sudah ada, memuat data…');edit(p.id)}else $('#pn').focus()})};
-$('#pb').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();$('#pn').focus()}});
+$('#pcam').onclick=function(){openScan(function(c){$('#pb').value=c;lookup(c);if(!restockId)$('#pn').focus()})};
+function lock(on){['pn','pc','pp','pm'].forEach(function(i){var e=$('#'+i);e.readOnly=on;e.style.opacity=on?.6:''})}
+function lookup(c){
+  if(editing||!c)return;
+  var p=find(c);
+  if(!p){if(restockId){restockId=null;lock(false);['pn','pc','pp','ps'].forEach(function(i){$('#'+i).value=''});$('#pm').value=5;$('#ftitle').textContent='Tambah Produk';$('#pslb').textContent='Stok'}return}
+  if(restockId===p.id)return;
+  restockId=p.id;$('#pn').value=p.name;$('#pc').value=p.cost;$('#pp').value=p.price;$('#pm').value=p.min;$('#ps').value='';lock(true);
+  $('#ftitle').textContent='Produk sudah ada — tambah stok';$('#pslb').textContent='Tambah stok (stok sekarang '+p.stock+')';
+  toast('Produk sudah ada: '+p.name+'. Isi jumlah stok masuk.');$('#ps').focus();$('#ps').scrollIntoView({block:'center',behavior:'smooth'})}
+$('#pb').addEventListener('input',function(){lookup(this.value.trim())});
+$('#pb').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();lookup($('#pb').value.trim());if(!restockId)$('#pn').focus()}});
+$('#pb').addEventListener('change',function(){lookup(this.value.trim())});
 $('#psave').onclick=function(){
   var b=$('#pb').value.trim(),n=$('#pn').value.trim(),pr=+$('#pp').value;
+  var ex=!editing&&b&&find(b);
+  if(ex){ /* barcode sudah ada: tambahkan stok, jangan buat produk baru */
+    var add=+$('#ps').value||0;
+    if(add<=0){toast('Produk sudah ada (stok '+ex.stock+'). Isi jumlah stok yang ditambahkan');$('#ps').focus();return}
+    ex.stock+=add;if(n)ex.name=n;if(pr)ex.price=pr;if($('#pc').value!=='')ex.cost=+$('#pc').value;
+    save();sync('saveProduct',ex);toast(ex.name+': stok +'+add+' → '+ex.stock);resetForm();renderP();$('#pb').focus();return}
   if(!b||!n||!pr){toast('Barcode, nama, dan harga jual wajib diisi');return}
   var dup=S.products.find(function(p){return p.barcode===b&&p.id!==editing});
   if(dup){toast('Barcode sudah dipakai: '+dup.name);return}
@@ -258,7 +275,7 @@ $('#psave').onclick=function(){
   if(editing){Object.assign(S.products.find(function(p){return p.id===editing}),o);toast('Produk diperbarui')}
   else{o.id='P'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);S.products.push(o);toast('Produk ditambahkan')}
   save();sync('saveProduct',editing?S.products.find(function(p){return p.id===editing}):o);resetForm();renderP();$('#pb').focus()};
-function edit(id){var p=S.products.find(function(x){return x.id===id});editing=id;
+function edit(id){var p=S.products.find(function(x){return x.id===id});editing=id;restockId=null;lock(false);$('#pslb').textContent='Stok';
   $('#pb').value=p.barcode;$('#pn').value=p.name;$('#pc').value=p.cost;$('#pp').value=p.price;$('#ps').value=p.stock;$('#pm').value=p.min;
   $('#ftitle').textContent='Edit Produk';window.scrollTo({top:0,behavior:'smooth'})}
 function renderP(){
@@ -268,6 +285,7 @@ function renderP(){
     return '<div class="item"><div class="n"><b>'+esc(p.name)+'</b><small>'+esc(p.barcode)+' · Jual '+rp(p.price)+' · Stok <span class="'+(low?'low':'')+'">'+p.stock+(low?' ⚠':'')+'</span></small></div>'+
     '<button class="btn s sm" data-a="e" data-id="'+p.id+'">Edit</button><button class="btn d" data-a="d" data-id="'+p.id+'">Hapus</button></div>'}).join(''):'<p class="mu" style="text-align:center">Belum ada produk.</p>'}
 $('#pq').oninput=renderP;
+$('#pqcam').onclick=function(){openScan(function(c){$('#pq').value=c;renderP()})};
 $('#dd').onclick=function(){
   var m={},del=[],keep=[];
   S.products.forEach(function(p){if(m[p.barcode])del.push(p.id);else{m[p.barcode]=1;keep.push(p)}});
