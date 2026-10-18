@@ -119,7 +119,7 @@ function load(){try{var d=JSON.parse(localStorage.getItem('kasir_v1')||'null');i
 function save(){try{localStorage.setItem('kasir_v1',JSON.stringify(S))}catch(e){}}
 load();
 /* ---------- Sinkron Google Sheets (Apps Script) ---------- */
-var CFG={url:'https://script.google.com/macros/s/AKfycbyIA-qtNWC40XRluRac84DDjIQZ22b6pXbeienUmXaDg7jnT1mBh4YjCNgFbYN64cHcgw/exec',key:''};
+var CFG={url:'https://script.google.com/macros/s/AKfycbyIA-qtNWC40XRluRac84DDjIQZ22b6pXbeienUmXaDg7jnT1mBh4YjCNgFbYN64cHcgw/exec',key:'Adiba566'};
 try{CFG=Object.assign(CFG,JSON.parse(localStorage.getItem('kasir_cfg')||'{}'))}catch(e){}
 var Q=[],busy=false;
 try{Q=JSON.parse(localStorage.getItem('kasir_q')||'[]')}catch(e){}
